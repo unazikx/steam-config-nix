@@ -1,6 +1,14 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal, Optional, Union
+
+
+@dataclass
+class ArtworkConfig:
+    cover: Optional[str] = None
+    banner: Optional[str] = None
+    hero: Optional[str] = None
+    logo: Optional[str] = None
 
 
 @dataclass
@@ -14,6 +22,7 @@ class NonSteamAppConfig:
     allow_desktop_config: bool
     allow_overlay: bool
     in_vr_library: bool
+    artwork: ArtworkConfig = field(default_factory=ArtworkConfig)
 
 
 @dataclass
@@ -46,3 +55,4 @@ class ConfigPatch:
     file_format: Literal["keyvalues", "binary-keyvalues"]
     data: KeyValuesType
     close_steam: bool
+

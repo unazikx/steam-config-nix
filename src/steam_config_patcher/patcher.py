@@ -1,8 +1,68 @@
+import binascii
+import logging
+import shutil
+from pathlib import Path
+
 import vdf
 
 from steam_config_patcher.formats.binary_keyvalues import patch_binary_keyvalues
 from steam_config_patcher.formats.keyvalues import patch_keyvalues
-from steam_config_patcher.types import ConfigPatch, PatcherConfig, UserConfig
+from steam_config_patcher.types import ArtworkConfig, ConfigPatch, PatcherConfig, UserConfig
+
+logger = logging.getLogger(__name__)
+
+
+def get_grid_id(exe: str, appname: str) -> int:
+    """Compute the Steam grid artwork ID for a non-Steam shortcut.
+
+    Steam uses crc32(exe + appname) | 0x80000000 as the ID prefix
+    for artwork filenames in userdata/<userid>/config/grid/.
+    This is distinct from the shortcut appid stored in shortcuts.vdf.
+    """
+    unique_id = exe + appname
+    return binascii.crc32(unique_id.encode()) | 0x80000000
+
+
+def patch_grid_artwork(
+    steam_dir: Path,
+    user_id: int,
+    exe: str,
+    appname: str,
+    artwork: ArtworkConfig,
+) -> None:
+    """Copy artwork files into Steam's grid directory for a non-Steam shortcut."""
+    grid_id = get_grid_id(exe, appname)
+    grid_dir = steam_dir / "userdata" / str(user_id) / "config" / "grid"
+    grid_dir.mkdir(parents=True, exist_ok=True)
+
+    # mapping: artwork field -> (filename suffix, description)
+    artwork_files: list[tuple[str | None, str, str]] = [
+        (artwork.cover,  f"{grid_id}p",      "cover"),
+        (artwork.banner, f"{grid_id}",        "banner"),
+        (artwork.hero,   f"{grid_id}_hero",   "hero"),
+        (artwork.logo,   f"{grid_id}_logo",   "logo"),
+    ]
+
+    for source_str, stem, kind in artwork_files:
+        if source_str is None:
+            continue
+
+        source = Path(source_str)
+        if not source.is_file():
+            logger.warning("Artwork %s not found: %s", kind, source)
+            continue
+
+        dest = grid_dir / (stem + source.suffix)
+
+        # skip if already identical (same resolved path, e.g. nix store symlinks)
+        if dest.exists() and dest.resolve() == source.resolve():
+            continue
+
+        try:
+            shutil.copy2(source, dest)
+            logger.info("Installed %s artwork: %s -> %s", kind, source, dest)
+        except OSError as e:
+            logger.error("Failed to install %s artwork: %s", kind, e)
 
 
 def generate_config_vdf_patch(cfg: PatcherConfig) -> ConfigPatch:
@@ -137,3 +197,15 @@ def patch_config_files(cfg: PatcherConfig):
                 patch_keyvalues(config_patch)
             case "binary-keyvalues":
                 patch_binary_keyvalues(config_patch)
+
+    # copy grid artwork for non-steam apps (runs after shortcuts are patched)
+    for user_id, user in cfg.users.items():
+        for app in user.non_steam_apps.values():
+            patch_grid_artwork(
+                steam_dir=cfg.steam_dir,
+                user_id=user_id,
+                exe=app.target,
+                appname=app.name,
+                artwork=app.artwork,
+            )
+
