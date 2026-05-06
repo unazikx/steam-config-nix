@@ -1,4 +1,3 @@
-import binascii
 import logging
 import shutil
 from pathlib import Path
@@ -12,26 +11,14 @@ from steam_config_patcher.types import ArtworkConfig, ConfigPatch, PatcherConfig
 logger = logging.getLogger(__name__)
 
 
-def get_grid_id(exe: str, appname: str) -> int:
-    """Compute the Steam grid artwork ID for a non-Steam shortcut.
-
-    Steam uses crc32(exe + appname) | 0x80000000 as the ID prefix
-    for artwork filenames in userdata/<userid>/config/grid/.
-    This is distinct from the shortcut appid stored in shortcuts.vdf.
-    """
-    unique_id = exe + appname
-    return binascii.crc32(unique_id.encode()) | 0x80000000
-
-
 def patch_grid_artwork(
     steam_dir: Path,
     user_id: int,
-    exe: str,
-    appname: str,
+    app_id: int,
     artwork: ArtworkConfig,
 ) -> None:
     """Copy artwork files into Steam's grid directory for a non-Steam shortcut."""
-    grid_id = get_grid_id(exe, appname)
+    grid_id = app_id
     grid_dir = steam_dir / "userdata" / str(user_id) / "config" / "grid"
     grid_dir.mkdir(parents=True, exist_ok=True)
 
@@ -200,12 +187,10 @@ def patch_config_files(cfg: PatcherConfig):
 
     # copy grid artwork for non-steam apps (runs after shortcuts are patched)
     for user_id, user in cfg.users.items():
-        for app in user.non_steam_apps.values():
+        for app_id, app in user.non_steam_apps.items():
             patch_grid_artwork(
                 steam_dir=cfg.steam_dir,
                 user_id=user_id,
-                exe=app.target,
-                appname=app.name,
+                app_id=app_id,
                 artwork=app.artwork,
             )
-
